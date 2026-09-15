@@ -3,8 +3,8 @@ name: Week 3 MLS CI/CD Pipeline
 on:
   push:
     branches:
-      - main            # Automatically triggers on push to the main branch
-  workflow_dispatch:     # lets you click "Run workflow" in the Actions tab
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,13 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install dependencies
         run: pip install -r week_3_mls/requirements.txt
+
       - name: Register dataset
         run: python week_3_mls/model_building/data_register.py
+
       - name: Upload registered dataset
         uses: actions/upload-artifact@v4
         with:
@@ -32,17 +38,23 @@ jobs:
   # ---------- JOB 2: Data Preparation ----------
   data-preparation:
     name: Data Preparation
-    needs: register-dataset          # waits for Job 1 to finish
+    needs: register-dataset
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install dependencies
         run: pip install -r week_3_mls/requirements.txt
+
       - name: Prepare data
         run: python week_3_mls/model_building/prep.py
+
       - name: Upload train/test splits
         uses: actions/upload-artifact@v4
         with:
@@ -53,32 +65,43 @@ jobs:
             ytrain.csv
             ytest.csv
 
-  # ---------- JOB 3: Model Training + MLflow Tracking ----------
+  # ---------- JOB 3: Model Training ----------
   model-training:
     name: Model Training
-    needs: data-preparation          # waits for Job 2 to finish
+    needs: data-preparation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install dependencies
         run: pip install -r week_3_mls/requirements.txt
+
       - name: Download train/test splits
         uses: actions/download-artifact@v4
         with:
-          name: data-splits          # brings Xtrain/Xtest/ytrain/ytest from Job 2
-      - name: Start MLflow tracking server
-        run: |
-          nohup mlflow ui --host 0.0.0.0 --port 5000 &   # Run MLflow UI in the background
-          sleep 5                                        # give the server a moment to start
+          name: data-splits
+
       - name: Train model with MLflow tracking
         run: python week_3_mls/model_building/train.py
-      - name: Commit trained model
+
+      - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Pull latest changes safely
+        run: git pull origin main --rebase
+
+      - name: Commit trained model
+        run: |
           git add week_3_mls/deployment/best_machine_failure_model_v1.joblib
-          git commit -m "Add trained model [skip ci]" || echo "No changes to commit"
-          git push
+          git diff --cached --quiet || git commit -m "Add trained model [skip ci]"
+
+      - name: Push changes
+        run: git push origin main
